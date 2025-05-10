@@ -13,7 +13,7 @@ echo "Make sure CATALYST_USERNAME and CATALYST_PASSWORD are also set in your env
 # Using --worker-class gevent for better SSE support if available, otherwise default sync workers
 # Using --timeout 120 to prevent worker timeouts during long SSE connections or slow API responses
 # Logging to server.log
-gunicorn --workers 2 --worker-class gevent --bind 0.0.0.0:5000 app:app --timeout 120 --log-file /home/ubuntu/mcp_server_project/server.log --log-level debug
+gunicorn --workers 2 --worker-class eventlet --bind 0.0.0.0:5001 app:app --timeout 120 --log-file /home/ubuntu/mcp_server_project/server.log --log-level debug
 
 if [ $? -eq 0 ]; then
     echo "Gunicorn server started successfully."
