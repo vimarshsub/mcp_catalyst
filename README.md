@@ -22,7 +22,7 @@ This project provides a server that acts as a bridge between MCP-compliant clien
 1.  **Clone the repository (if applicable) or ensure all files are in place.**
 2.  **Navigate to the backend directory:**
     ```bash
-    cd /home/ubuntu/mcp_server_project/backend
+    cd /home/ubuntu/mcp_server_project
     ```
 3.  **Set up the Python virtual environment (if not already done during development):**
     ```bash
@@ -118,7 +118,7 @@ The `CatalystCenterAPITool` (whether called via POST or SSE) expects the `inputs
 
 ## Troubleshooting
 
--   Check the server logs (`/home/ubuntu/mcp_server_project/backend/server.log`) for any errors.
+-   Check the server logs (`/home/ubuntu/mcp_server_project/server.log`) for any errors.
 -   Ensure the Catalyst Center credentials and base URL are correctly set as environment variables.
 -   Verify network connectivity between the MCP server and the Catalyst Center instance.
 -   Confirm that the Catalyst Center API endpoints you are trying to access are correct and that the provided credentials have the necessary permissions.
