@@ -28,36 +28,79 @@ def handle_test_sse():
 # --- Helper function to process MCP requests (reused) ---
 def process_mcp_logic(method, params, request_id):
     app.logger.info(f"Processing MCP Logic: method={method}, params={params}, id={request_id}")
-    if method == "mcp/getServerCapabilities":
-        capabilities = {
-            "tools": [
-                {
-                    "toolId": "catalyst_api_tool",
-                    "name": "CatalystCenterAPITool",
-                    "description": "A tool to make API calls to a Cisco Catalyst Center instance. Input should be a JSON object specifying http_method, endpoint_path, and optionally request_params and request_body.",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "http_method": {"type": "string", "description": "HTTP method (e.g., GET, POST, PUT, DELETE)"},
-                            "endpoint_path": {"type": "string", "description": "API endpoint path (e.g., /dna/intent/api/v1/site)"},
-                            "request_params": {"type": "object", "description": "(Optional) Dictionary of query parameters"},
-                            "request_body": {"type": "object", "description": "(Optional) Dictionary for the request body (for POST, PUT)"}
-                        },
-                        "required": ["http_method", "endpoint_path"]
+    if method == "initialize":
+        # Return success response for initialization
+        return {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {
+                    "tools": {
+                        "supportedMethods": ["tools/list", "tools/call"]
                     },
-                    "outputSchema": {
-                        "type": "object",
-                        "properties": {
-                            "status_code": {"type": "integer"},
-                            "response_body": {"type": ["object", "array", "string", "null"]}
-                        }
+                    "resources": {
+                        "supportedMethods": ["resources/list", "resources/read"]
+                    },
+                    "prompts": {
+                        "supportedMethods": ["prompts/list", "prompts/get"]
                     }
+                },
+                "serverInfo": {
+                    "name": "catalyst-center-mcp-server",
+                    "version": "1.0.0"
                 }
-            ]
+            }
+        }
+    elif method == "mcp/getServerCapabilities":
+        capabilities = {
+            "protocolVersion": "0.1.0",
+            "capabilities": {
+                "tools": {
+                    "supportedMethods": ["tools/list", "tools/call"]
+                },
+                "resources": {
+                    "supportedMethods": ["resources/list", "resources/read"]
+                },
+                "prompts": {
+                    "supportedMethods": ["prompts/list", "prompts/get"]
+                }
+            },
+            "serverInfo": {
+                "name": "catalyst-center-mcp-server",
+                "version": "1.0.0"
+            }
         }
         return {"jsonrpc": "2.0", "result": capabilities, "id": request_id}
 
-    elif method == "mcp/executeTool":
+    elif method == "tools/list":
+        tools = [
+            {
+                "toolId": "catalyst_api_tool",
+                "name": "CatalystCenterAPITool",
+                "description": "A tool to make API calls to a Cisco Catalyst Center instance. Input should be a JSON object specifying http_method, endpoint_path, and optionally request_params and request_body.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "http_method": {"type": "string", "description": "HTTP method (e.g., GET, POST, PUT, DELETE)"},
+                        "endpoint_path": {"type": "string", "description": "API endpoint path (e.g., /dna/intent/api/v1/site)"},
+                        "request_params": {"type": "object", "description": "(Optional) Dictionary of query parameters"},
+                        "request_body": {"type": "object", "description": "(Optional) Dictionary for the request body (for POST, PUT)"}
+                    },
+                    "required": ["http_method", "endpoint_path"]
+                },
+                "outputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "status_code": {"type": "integer"},
+                        "response_body": {"type": ["object", "array", "string", "null"]}
+                    }
+                }
+            }
+        ]
+        return {"jsonrpc": "2.0", "result": {"tools": tools}, "id": request_id}
+
+    elif method == "tools/call":
         tool_id = params.get("toolId")
         inputs = params.get("inputs")
 
@@ -88,10 +131,10 @@ def process_mcp_logic(method, params, request_id):
                 }
                 return {"jsonrpc": "2.0", "result": {"outputs": tool_result}, "id": request_id}
             except CatalystClientError as e:
-                app.logger.error(f"Catalyst Client Error during mcp/executeTool: {e}")
+                app.logger.error(f"Catalyst Client Error during tools/call: {e}")
                 return {"jsonrpc": "2.0", "error": {"code": 1001, "message": "Catalyst API request failed", "data": str(e)}, "id": request_id}
             except Exception as e:
-                app.logger.error(f"Unexpected error during mcp/executeTool: {e}", exc_info=True)
+                app.logger.error(f"Unexpected error during tools/call: {e}", exc_info=True)
                 return {"jsonrpc": "2.0", "error": {"code": -32000, "message": "Server error", "data": str(e)}, "id": request_id}
         else:
             return {"jsonrpc": "2.0", "error": {"code": -32601, "message": "Method not found: Unknown toolId"}, "id": request_id}
@@ -99,65 +142,128 @@ def process_mcp_logic(method, params, request_id):
         return {"jsonrpc": "2.0", "error": {"code": -32601, "message": "Method not found"}, "id": request_id}
 
 # --- NEW SSE Session Handshake Endpoint ---
-@app.route("/mcp/sse_session", methods=["GET"])
-def handle_sse_session_handshake():
-    app.logger.info("Request received for /mcp/sse_session")
+@app.route("/mcp/sse_session", methods=["GET", "POST"])
+@app.route("/mcp/<path:session_config>", methods=["POST"])  # Add a catch-all route for malformed URLs
+def handle_sse_session_handshake(session_config=None):
+    app.logger.info(f"Request received for /mcp/sse_session with method: {request.method}")
+    
+    if request.method == "POST":
+        try:
+            data = None
+            session_id = None
+
+            # If the URL is malformed, try to extract session ID from the URL path
+            if session_config:
+                try:
+                    # Try to parse the session config from the URL
+                    session_data = json.loads(urllib.parse.unquote(session_config))
+                    session_id = session_data.get("sessionId")
+                    app.logger.info(f"Extracted session ID from URL: {session_id}")
+                except:
+                    session_id = None
+
+            # Try to get data from request body
+            try:
+                data = request.get_json()
+                app.logger.info(f"Received POST data: {data}")
+                if data and not session_id:
+                    session_id = data.get("sessionId")
+            except:
+                data = None
+            
+            app.logger.info(f"Processing POST for session {session_id}")
+            
+            if not session_id or session_id not in active_sessions:
+                app.logger.warning(f"Invalid or missing sessionId: {session_id}. Active sessions: {list(active_sessions.keys())}")
+                return jsonify({"jsonrpc": "2.0", "error": {"code": -32001, "message": "Invalid or missing session ID"}, "id": None}), 401
+
+            if not data or "jsonrpc" not in data or "method" not in data:
+                app.logger.warning(f"Invalid JSON-RPC payload for session {session_id}: {data}")
+                return jsonify({"jsonrpc": "2.0", "error": {"code": -32600, "message": "Invalid Request"}, "id": data.get("id") if data else None}), 400
+
+            method = data.get("method")
+            params = data.get("params", {})
+            request_id = data.get("id")
+            
+            app.logger.info(f"Processing POST for session {session_id}: method={method}, id={request_id}")
+            response_payload = process_mcp_logic(method, params, request_id)
+            app.logger.info(f"Sending response for session {session_id}: {response_payload}")
+            return jsonify(response_payload)
+        except Exception as e:
+            app.logger.error(f"Error processing session RPC request: {str(e)}", exc_info=True)
+            return jsonify({"jsonrpc": "2.0", "error": {"code": -32000, "message": f"Server error: {str(e)}"}, "id": None}), 500
+
+    # Handle GET request for SSE connection
     session_id = str(uuid.uuid4())
-    post_endpoint_path = "/mcp/session_rpc"
-    active_sessions[session_id] = {"post_endpoint": post_endpoint_path} # Store session
+    post_endpoint_path = "/mcp/sse_session"  # Use the same endpoint for POST
+    active_sessions[session_id] = {
+        "post_endpoint": post_endpoint_path,
+        "created_at": time.time()
+    }
     app.logger.info(f"New SSE session created: {session_id}, POST endpoint: {post_endpoint_path}")
 
     def generate_handshake_event():
         app.logger.info(f"Inside generate_handshake_event for session {session_id}")
+        
+        # Send initial connection event with capabilities
+        capabilities = {
+            "jsonrpc": "2.0",
+            "id": "connection-1",
+            "result": {
+                "protocolVersion": "0.1.0",
+                "capabilities": {
+                    "tools": {
+                        "supportedMethods": ["tools/list", "tools/call"]
+                    },
+                    "resources": {
+                        "supportedMethods": ["resources/list", "resources/read"]
+                    },
+                    "prompts": {
+                        "supportedMethods": ["prompts/list", "prompts/get"]
+                    }
+                },
+                "serverInfo": {
+                    "name": "catalyst-center-mcp-server",
+                    "version": "1.0.0"
+                }
+            }
+        }
+        yield f"event: connected\ndata: {json.dumps(capabilities)}\n\n"
+        
+        # Send the endpoint configuration event
         endpoint_event_data = {
             "sessionId": session_id,
-            "postEndpoint": post_endpoint_path 
+            "postEndpoint": post_endpoint_path
         }
         sse_event = f"event: endpoint\ndata: {json.dumps(endpoint_event_data)}\n\n"
         app.logger.info(f"Streaming SSE handshake event for session {session_id}: {sse_event.strip()}")
-        time.sleep(0.1) # Small delay to help ensure log flush before yield
         yield sse_event
-        app.logger.info(f"Finished yielding handshake event for session {session_id}")
         
-        # Keep stream alive with periodic pings - uncomment and adapt if needed for long-lived client connections
-        # try:
-        #     while True:
-        #         app.logger.debug(f"SSE session {session_id}: sending keepalive ping")
-        #         yield ": keepalive\n\n"
-        #         time.sleep(15) # Send a comment every 15 seconds
-        # except GeneratorExit:
-        #     app.logger.info(f"SSE client for session {session_id} disconnected.")
-        # finally:
-        #     if session_id in active_sessions:
-        #         del active_sessions[session_id]
-        #         app.logger.info(f"SSE session {session_id} cleaned up from active_sessions.")
+        # Keep stream alive with periodic pings
+        try:
+            while True:
+                app.logger.debug(f"SSE session {session_id}: sending keepalive ping")
+                yield ": keepalive\n\n"
+                time.sleep(15) # Send a comment every 15 seconds
+        except GeneratorExit:
+            app.logger.info(f"SSE client for session {session_id} disconnected.")
+        finally:
+            if session_id in active_sessions:
+                del active_sessions[session_id]
+                app.logger.info(f"SSE session {session_id} cleaned up from active_sessions.")
 
-    return Response(stream_with_context(generate_handshake_event()), mimetype="text/event-stream")
+    response = Response(
+        stream_with_context(generate_handshake_event()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
+    return response
 
-# --- NEW POST Endpoint for Session-Based JSON-RPC ---
-@app.route("/mcp/session_rpc", methods=["POST"])
-def handle_session_rpc_post():
-    session_id = request.headers.get("X-Session-ID")
-    app.logger.info(f"Request received for /mcp/session_rpc with X-Session-ID: {session_id}")
-    if not session_id or session_id not in active_sessions:
-        app.logger.warning(f"Invalid or missing X-Session-ID: {session_id}. Active sessions: {list(active_sessions.keys())}")
-        return jsonify({"jsonrpc": "2.0", "error": {"code": -32001, "message": "Invalid or missing session ID"}, "id": None}), 401
-
-    data = request.get_json()
-    if not data or "jsonrpc" not in data or "method" not in data:
-        app.logger.warning(f"Invalid JSON-RPC payload for session {session_id}: {data}")
-        return jsonify({"jsonrpc": "2.0", "error": {"code": -32600, "message": "Invalid Request"}, "id": data.get("id") if data else None}), 400
-
-    method = data.get("method")
-    params = data.get("params", {})
-    request_id = data.get("id")
-    
-    app.logger.info(f"Processing POST for session {session_id}: method={method}, id={request_id}")
-    response_payload = process_mcp_logic(method, params, request_id)
-    return jsonify(response_payload)
-
-
-# --- Old/Existing Endpoints (kept for reference or potential backward compatibility) ---
+# --- OLD/Existing Endpoints (kept for reference or potential backward compatibility) ---
 @app.route("/")
 def hello_world():
     return "Hello, MCP Server Backend is running! (Now with MCP capabilities including NEW SSE session model)"

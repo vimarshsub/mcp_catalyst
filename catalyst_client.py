@@ -7,10 +7,10 @@ import os
 class CatalystClientError(Exception):
     pass
 
-# It's a good practice to get the base URL and credentials from environment variables
-CATALYST_BASE_URL = os.getenv("CATALYST_BASE_URL", "https://128.107.255.230")
-CATALYST_USERNAME = os.getenv("CATALYST_USERNAME", "netadmin1")
-CATALYST_PASSWORD = os.getenv("CATALYST_PASSWORD", "LABC1sco123")
+# Hardcoded credentials for Catalyst Center
+CATALYST_BASE_URL = "https://128.107.255.230"
+CATALYST_USERNAME = "netadmin1"
+CATALYST_PASSWORD = "LABC1sco123"
 
 class CatalystClient:
     def __init__(self):
