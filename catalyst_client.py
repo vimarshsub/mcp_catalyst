@@ -8,9 +8,9 @@ class CatalystClientError(Exception):
     pass
 
 # Hardcoded credentials for Catalyst Center
-CATALYST_BASE_URL = "https://128.107.255.230"
-CATALYST_USERNAME = "netadmin1"
-CATALYST_PASSWORD = "LABC1sco123"
+CATALYST_BASE_URL = ""
+CATALYST_USERNAME = ""
+CATALYST_PASSWORD = ""
 
 class CatalystClient:
     def __init__(self):
